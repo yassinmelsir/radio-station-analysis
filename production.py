@@ -98,9 +98,22 @@ class Data:
     def visualize_location_impact_on_correlation(self):
         if self.dfDAB:
             correlation_matrix = self.__compute_correlation_matrix()
-            plt.figure(figsize=(8,6))
-            sns.heatmap(correlation_matrix, cmp='coolwarm', annot=True, fmt='.2f', square=True)
-            plt.title('Correlation between EID Frequency, Block and Label Length')
+            df = self.dfDAB
+            
+            #find latitude and longitude of site
+            geolocater = Nominatim(user_agent='production-app')
+            df['Coordinates'] = df['Site'].apply(lambda x: geolocater.geocode(x).point if geolocater.geocode(x) else None)
+            df['Latitude'] = df['Coordinates'].apply(lambda x: x.latitude if x.latitude else None)
+            df['Longitude'] = df['Longitude'].apply(lambda x: x.longitude if x.longitude else None)
+            
+            plt.figure(figsize=(10,8))
+            sns.heatmap(correlation_matrix, cmap='coolwarm', annot=True, fmt='.2f', square=True)
+            plt.scatter(df['Longitude'], df['Latitude'], marker='x', color='red')
+            plt.title('Affect of Location on Correlation between EID Frequency, Block and Label Length')
+            plt.xlabel('Longitude')
+            plt.ylabel('Latitude')
+            plt.show()
+            
         else:
             print('No Data in Working Space!')
     
