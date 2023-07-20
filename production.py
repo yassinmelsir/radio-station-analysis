@@ -3,9 +3,10 @@ from tkinter import filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from pymongo import MongoClient
 import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
-from geopy.geocoders import Nominatim
 
 class GUI:
     def __init__(self,data):
@@ -37,6 +38,7 @@ class GUI:
         self.location_correl_graph_button = tk.Button(self.rightFrame, text='Location Correlation Graph', command=self.__populate_location_correlation_graph)
             
         #gui layout
+        # better looking layout
         for i in range(0,1+1):
             self.root.grid_rowconfigure(i, weight=1)
             self.root.grid_columnconfigure(i, weight=1)
@@ -67,7 +69,7 @@ class GUI:
         if self.txAntennaFilePath and self.txParamsFilePath:
             success = self.data.initialize_client_dataset(self.txAntennaFilePath, self.txParamsFilePath)
             print('Dataset successfully loaded!') if success else print('Did not Load')
-            if success: self.__populate_statistics
+            if success: self.__populate_statistics()
         else:
             print('One or more file paths incorrect!')
         
@@ -75,7 +77,7 @@ class GUI:
         #check and prompt for correct input
         success = self.data.load_from_database()
         print('Dataset successfully loaded!') if success else print('No Data on Files')
-        if success: self.__populate_statistics
+        if success: self.__populate_statistics()
     
     def __save_to_database(self):
         #check and prompt for correct input
@@ -122,6 +124,7 @@ class GUI:
     def __populate_statistics(self):
         #check and prompt for correct input
         powerStatistics = self.data.power_statistics(self.rows,self.columns)
+        breakpoint()
         print(powerStatistics)
         if powerStatistics: 
             heightConstraint = powerStatistics['heightConstraint']
@@ -206,17 +209,19 @@ class Data:
         dfDAB = self.__cleaning_shaping(dfAntenna, dfParams)
         #load into workingspace
         self.dfDAB = dfDAB
-        print(self.dfDAB)
         return True if self.dfDAB.shape[0] > 0 else False
     
     def clear_working_space(self):
         self.dfDAB = None
         
     def power_statistics(self,rows,columns):
+        # working statistics
         if self.dfDAB.shape[0] > 0:
+            
             df = self.dfDAB.query(f'EID in {rows}')
             df = df[columns]
             # mean mode median for multiplex with site height greater than 75
+            breakpoint()
             dfSiteHeight75 = df[df['Site Height'] > 75]
             powerDfSiteHeight75 = dfSiteHeight75['Power (kW)']
             powerStatisticsSiteHeightAbove75 = {
@@ -230,6 +235,8 @@ class Data:
             powerStatisticsDate2001Onward = {
                 'mean':powerDfDate2001Onwards.mean(), 'median': powerDfDate2001Onwards.median(), 'mode': powerDfDate2001Onwards.mode().values[0]
             }
+            print(powerStatisticsSiteHeightAbove75, powerStatisticsDate2001Onward)
+            breakpoint()
             return {
                 'heightConstraint': powerStatisticsSiteHeightAbove75, 'dateConstraint': powerStatisticsDate2001Onward
             }
@@ -237,11 +244,11 @@ class Data:
             print('No Data in Working Space!')
     
     def visualize_correlations(self, ax, figure, canvas, rows, columns):
+        # pretty up heatmap
         if self.dfDAB.shape[0] > 0:
             correlation_matrix = self.__compute_correlation_matrix(rows, columns)
             figure.clf()
             ax.clear()
-            breakpoint()
             sns.heatmap(correlation_matrix, cmap='coolwarm', annot=True, fmt='.2f', square=True, ax=ax)
             ax.set_title('Correlation Statistics')
             canvas.draw()
@@ -249,23 +256,41 @@ class Data:
             print('No Data in Working Space!')
     
     def visualize_location_impact_on_correlation(self, ax, figure, canvas, rows, columns):
+        # working graph
         if self.dfDAB.shape[0] > 0:
-            correlation_matrix = self.__compute_correlation_matrix(rows, columns)
-            df = self.dfDAB
             
-            #find latitude and longitude of site
-            geolocater = Nominatim(user_agent='production-app')
-            df['Coordinates'] = df['Site'].apply(lambda x: geolocater.geocode(x).point if geolocater.geocode(x) else None)
-            df['Latitude'] = df['Coordinates'].apply(lambda x: x.latitude if x.latitude else None)
-            df['Longitude'] = df['Longitude'].apply(lambda x: x.longitude if x.longitude else None)
+            df = self.dfDAB.query(f"EID in {rows}")
+            df = df[['EID','Site']+columns]
+            stringColumns = df.columns.difference(['Freq.', 'Block'])
+            labelEncoder = LabelEncoder()
+            df['Block'] = labelEncoder.fit_transform(df['Block'])
+            df[stringColumns] = df[stringColumns].applymap(len)
+            
+            
+            grouped_df = df.groupby('EID')
+            mean_values = grouped_df.mean()
+            x_positions = np.arange(len(columns))
+            bar_width = 0.2
+            colors = ['red', 'green', 'blue']
 
-            figure.clf()
-            ax.clear()
-            sns.heatmap(correlation_matrix, cmap='coolwarm', annot=True, fmt='.2f', square=True, ax=ax)
-            ax.scatter(df['Longitude'], df['Latitude'], marker='x', color='red')
-            ax.set_title('Affect of Location on Correlation Statistics')
-            ax.set_xlabel('Longitude')
-            ax.set_ylabel('Latitude')
+            figure.clf(), ax.clear()
+            print(mean_values)
+            # Plot the bars for each EID
+            for i, eid in enumerate(mean_values.index):
+                ax.bar(x_positions + i * bar_width, mean_values.loc[eid, columns], width=bar_width, label=eid, color=colors[i])
+
+            # Set the x-axis tick labels to the column names
+            ax.set_xticks(x_positions)
+            ax.set_xticklabels(columns)
+
+            # Add labels, legend, and title
+            ax.set_xlabel('Columns')
+            ax.set_ylabel('Mean Values')
+            ax.set_title('Mean Values for Different EIDs')
+
+            # Show the legend
+            ax.legend()
+            
             canvas.draw()
             
         else:
