@@ -3,28 +3,29 @@ from tkinter import filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from pymongo import MongoClient
 import pandas as pd
-import numpy as np
 from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 class GUI:
     def __init__(self,data):
+        # add box to load database by name
+        # add box to save database by name
+        # add listbox of databases
+        # add final graph
+        # fix statistics display
         self.data = data
         self.txAntennaFilePath = None
         self.txParamsFilePath = None
         self.rows = ['C18A', 'C18F', 'C188']
-        self.columns = ['Freq.', 'Block','Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ','Serv Label10 ']
-        
+                
         #gui init
         self.root = tk.Tk()
         self.root.title('Production')
         
         #gui elements
-        self.figure = plt.figure(figsize=(3,2))
-        self.ax = self.figure.add_subplot(111)
-        self.canvas = FigureCanvasTkAgg(self.figure, master=self.root)
-        self.canvas.draw()
+        self.graphFrame = tk.Frame(self.root)
+        graphPlaceholder = tk.Label(self.graphFrame, text="Placeholder", bg="white", fg="black")
         self.text =  tk.Text(self.root)
         self.rightFrame = tk.Frame(self.root)
         self.txAntennaButton = tk.Button(self.rightFrame, text='Find TxAntenna File', command=self.__update_antenna_filePath)
@@ -44,7 +45,8 @@ class GUI:
             self.root.grid_columnconfigure(i, weight=1)
        
         
-        self.canvas.get_tk_widget().grid(row=0,column=0)
+        self.graphFrame.grid(row=0,column=0)
+        graphPlaceholder.pack(fill=tk.BOTH, expand=True)
         self.text.grid(row=1,column=0)
         self.rightFrame.grid(row=0,column=1, rowspan=2)
         widgets = [self.txAntennaButton, self.txAntennaFilePathText, self.txParamsButton, self.txParamsFilePathText, self.load_csv_button, self.load_database_button, self.save_database_button, self.correlation_graph_button, self.location_correl_graph_button]
@@ -54,11 +56,6 @@ class GUI:
         for i, row in enumerate(self.rows):
             self.rowbuttons[row] = tk.BooleanVar(value=True) 
             checkbutton = tk.Checkbutton(self.rightFrame, text=row, variable=self.rowbuttons[row], command=self.__update_rows)
-            checkbutton.pack()
-        self.columnbuttons = {}
-        for i, column in enumerate(self.columns):
-            self.columnbuttons[column] = tk.BooleanVar(value=True) 
-            checkbutton = tk.Checkbutton(self.rightFrame, text=column, variable=self.columnbuttons[column], command=self.__update_columns)
             checkbutton.pack()     
                     
         self.root.mainloop()
@@ -92,14 +89,6 @@ class GUI:
                 self.rows.append(row)
         self.__populate_statistics()
         
-    def __update_columns(self):
-        #check and prompt for correct input and ouput
-        self.columns.clear()
-        for column, var in self.columnbuttons.items():
-            if var.get():
-                self.columns.append(column)
-        self.__populate_statistics()
-                
     def __update_antenna_filePath(self):
         #check and prompt for correct input
         filePath = filedialog.askopenfilename()
@@ -123,27 +112,25 @@ class GUI:
         
     def __populate_statistics(self):
         #check and prompt for correct input
-        powerStatistics = self.data.power_statistics(self.rows,self.columns)
-        breakpoint()
-        print(powerStatistics)
+        powerStatistics = self.data.power_statistics(self.rows)
         if powerStatistics: 
             heightConstraint = powerStatistics['heightConstraint']
             dateConstraint = powerStatistics['dateConstraint']
             content = [
                 ['Constraint', 'Mean', 'Median', 'Mode'],
-                ['Height', heightConstraint['mean'], heightConstraint['median'],heightConstraint['mode'],],
+                ['Height', heightConstraint['mean'], heightConstraint['median'],heightConstraint['mode']],
                 ['Date', dateConstraint['mean'], dateConstraint['median'],dateConstraint['mode']]]
             for i, row in enumerate(content):
                 for j, element in enumerate(row):
-                    self.text.insert(tk.END, element + ' ')
+                    self.text.insert(tk.END, str(element) + ' ')
                     self.text.grid(row=i, column=j)
             
         
     def __populate_correlation_graph(self):
-        self.data.visualize_correlations(self.ax, self.figure, self.canvas, self.rows, self.columns)
+        self.data.visualize_correlations(self.graphFrame, self.rows)
         
     def __populate_location_correlation_graph(self):
-        self.data.visualize_location_impact_on_correlation(self.ax, self.figure, self.canvas, self.rows, self.columns)
+        self.data.visualize_location_impact_on_correlation(self.graphFrame, self.rows)
         
                 
 class Data:
@@ -197,8 +184,16 @@ class Data:
     def __cleaning_shaping(self,dfAntenna,dfParams):
         dfDAB = dfParams.join(dfAntenna[['NGR', 'Site Height', 'In-Use Ae Ht', 'In-Use ERP Total']])
         dfDAB = dfDAB.query("EID in ['C18A', 'C18F', 'C188']")
-        dfDAB = dfDAB[['EID', 'Site', 'Freq.', 'Block', 'Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ','Serv Label10 ','Site Height', 'In-Use Ae Ht', 'In-Use ERP Total']]
-        dfDAB = dfDAB.rename({'In-Use Ae Ht': 'Aerial height (m)', 'In-Use ERP Total': 'Power (kW)'})
+        dfDAB = dfDAB[['EID', 'Site', 'Freq.', 'Block', 'Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ','Serv Label10 ','Site Height', 'In-Use Ae Ht', 'In-Use ERP Total','Date']]
+        dfDAB['Aerial height (m)'], dfDAB['Power (kW)'] = dfDAB['In-Use Ae Ht'].copy(), dfDAB['In-Use ERP Total'].copy()
+        dfDAB.drop(columns=['In-Use Ae Ht','In-Use ERP Total'])
+        dfDAB['Date'] = dfDAB['Date'].apply(lambda x: x[-4:]).astype(int)
+        dfDAB['Power (kW)'] = dfDAB['Power (kW)'].apply(lambda x: x.replace(',','')).astype(float)
+        labels = ['Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ', 'Serv Label10 ']
+        dfDAB[labels] = dfDAB[labels].applymap(len) # apply numerical normilzation to data
+        labelencoder = LabelEncoder()
+        dfDAB['Block'] = labelencoder.fit_transform(dfDAB['Block'])
+        dfDAB['Site'] = labelencoder.fit_transform(dfDAB['Site'])
         return dfDAB
 
     def initialize_client_dataset(self, antennaFilePath, paramsFilePath):
@@ -214,95 +209,77 @@ class Data:
     def clear_working_space(self):
         self.dfDAB = None
         
-    def power_statistics(self,rows,columns):
+    def power_statistics(self,rows):
         # working statistics
         if self.dfDAB.shape[0] > 0:
             
             df = self.dfDAB.query(f'EID in {rows}')
-            df = df[columns]
             # mean mode median for multiplex with site height greater than 75
-            breakpoint()
             dfSiteHeight75 = df[df['Site Height'] > 75]
             powerDfSiteHeight75 = dfSiteHeight75['Power (kW)']
             powerStatisticsSiteHeightAbove75 = {
                 'mean':powerDfSiteHeight75.mean(), 'median': powerDfSiteHeight75.median(), 'mode': powerDfSiteHeight75.mode().values[0]
             }
-            
             # mean mode median for multiplex with date from 2001 onwards
-            df['Date'] = pd.to_datetime(df['Date'], format='$d/$m/$Y')
-            dfDate2001Onwards = df[df['Date'].dt.year >= 2001]
+            dfDate2001Onwards = df[df['Date'] >= 2001]
             powerDfDate2001Onwards = dfDate2001Onwards['Power (kW)']
             powerStatisticsDate2001Onward = {
                 'mean':powerDfDate2001Onwards.mean(), 'median': powerDfDate2001Onwards.median(), 'mode': powerDfDate2001Onwards.mode().values[0]
             }
-            print(powerStatisticsSiteHeightAbove75, powerStatisticsDate2001Onward)
-            breakpoint()
             return {
                 'heightConstraint': powerStatisticsSiteHeightAbove75, 'dateConstraint': powerStatisticsDate2001Onward
             }
         else:
             print('No Data in Working Space!')
     
-    def visualize_correlations(self, ax, figure, canvas, rows, columns):
-        # pretty up heatmap
+    def visualize_correlations(self, graphFrame, rows):
+        for child in graphFrame.winfo_children():
+            child.destroy()
         if self.dfDAB.shape[0] > 0:
-            correlation_matrix = self.__compute_correlation_matrix(rows, columns)
-            figure.clf()
-            ax.clear()
+            correlation_matrix = self.__compute_correlation_matrix(rows)
+            figure, ax = plt.subplots()
             sns.heatmap(correlation_matrix, cmap='coolwarm', annot=True, fmt='.2f', square=True, ax=ax)
             ax.set_title('Correlation Statistics')
+            canvas = FigureCanvasTkAgg(figure, master=graphFrame)
             canvas.draw()
+            canvas.get_tk_widget().pack()
         else:
             print('No Data in Working Space!')
     
-    def visualize_location_impact_on_correlation(self, ax, figure, canvas, rows, columns):
-        # working graph
+    def visualize_location_impact_on_correlation(self, graphFrame, rows):
+        for child in graphFrame.winfo_children():
+            child.destroy()
         if self.dfDAB.shape[0] > 0:
-            
-            df = self.dfDAB.query(f"EID in {rows}")
-            df = df[['EID','Site']+columns]
-            stringColumns = df.columns.difference(['Freq.', 'Block'])
-            labelEncoder = LabelEncoder()
-            df['Block'] = labelEncoder.fit_transform(df['Block'])
-            df[stringColumns] = df[stringColumns].applymap(len)
-            
-            
+            df = self.dfDAB.query(f"EID in {rows}")   
             grouped_df = df.groupby('EID')
-            mean_values = grouped_df.mean()
-            x_positions = np.arange(len(columns))
-            bar_width = 0.2
-            colors = ['red', 'green', 'blue']
-
-            figure.clf(), ax.clear()
-            print(mean_values)
-            # Plot the bars for each EID
-            for i, eid in enumerate(mean_values.index):
-                ax.bar(x_positions + i * bar_width, mean_values.loc[eid, columns], width=bar_width, label=eid, color=colors[i])
-
-            # Set the x-axis tick labels to the column names
-            ax.set_xticks(x_positions)
-            ax.set_xticklabels(columns)
-
-            # Add labels, legend, and title
-            ax.set_xlabel('Columns')
-            ax.set_ylabel('Mean Values')
-            ax.set_title('Mean Values for Different EIDs')
-
-            # Show the legend
-            ax.legend()
+            groups = df['EID'].unique()
+            columns = ['Site','Freq.', 'Block','Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ', 'Serv Label10 '] 
             
+            figure, ax = plt.subplots()
+            bar_width = 0.35
+            bar_spacing = 0.2
+            for i, column in enumerate(columns):
+                x = [j + i * (bar_width + bar_spacing) for j in range(len(groups))]
+                bars = ax.bar(x, grouped_df[column].mean(), width=bar_width, label=column)
+
+            ax.set_xticks([j + bar_width / 2 + (len(columns) - 1) * (bar_width + bar_spacing) / 2 for j in range(len(groups))])
+            ax.set_xticklabels(groups)
+            ax.set_xlabel('Group')
+            ax.set_ylabel('Mean Value')
+            ax.set_title('Bar Graph for Each Group and Numerical Columns')
+            ax.legend()
+                        
+            canvas = FigureCanvasTkAgg(figure, master=graphFrame)
             canvas.draw()
+            canvas.get_tk_widget().pack()
             
         else:
             print('No Data in Working Space!')
     
-    def __compute_correlation_matrix(self, rows, columns):
+    def __compute_correlation_matrix(self, rows):
         if self.dfDAB.shape[0] > 0:
             df = self.dfDAB.query(f"EID in {rows}")
-            labels = ['Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ', 'Serv Label10 ']
-            df[labels] = df[labels].applymap(len) # apply numerical normilzation to data
-            correlation_columns = labels + ['Freq.', 'Block']
-            correlation_columns = [label for label in labels if label in columns] # filters all labels not selected for in GUI
+            correlation_columns = ['Freq.', 'Block','Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ', 'Serv Label10 ']
             correlation_matrix = df[correlation_columns].corr()
             return correlation_matrix
         else:
@@ -311,7 +288,7 @@ class Data:
         
 serverAddress = 'mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000&appName=mongosh+1.10.1'
 databaseName = 'test'
-collection  = 'DAB'
+collection  = 'DAB2'
 
 data = Data(serverAddress, databaseName, collection)
 gui = GUI(data)
