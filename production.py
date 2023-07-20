@@ -7,6 +7,8 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
+import numpy as np
+
 
 class GUI:
     def __init__(self,data):
@@ -24,8 +26,7 @@ class GUI:
         #gui elements
         self.graphFrame = tk.Frame(self.groupFrame)
         self.__placeholder_graph()
-        self.table = ttk.Treeview(self.groupFrame)
-        self.__create_table
+        self.statisticsText = tk.Text(self.groupFrame, wrap="word")
         self.txAntennaButton = tk.Button(self.buttonFrame, text='Find TxAntenna File', command=self.__update_antenna_filePath)
         self.txAntennaFilePathText =  tk.Text(self.buttonFrame, height=5, width=15)
         self.txParamsButton = tk.Button(self.buttonFrame, text='Find TxParams File', command=self.__update_params_filePath)
@@ -37,11 +38,13 @@ class GUI:
         self.location_correl_graph_button = tk.Button(self.buttonFrame, text='Location Correlation Graph', command=self.__populate_location_correlation_graph)
             
         #gui layout
-        # better looking layout
-        self.groupFrame.grid(row=0,column=0)
+        self.groupFrame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.graphFrame.grid(row=0, column=0, sticky='nsew')
-        self.table.grid(row=0, column=1, sticky='nsew')
+        self.statisticsText.grid(row=0, column=1, sticky='nsew')
         self.buttonFrame.grid(row=0,column=2, sticky='nsew')
+        
+        #make sub groups responsive
+        
         
         widgets = [self.txAntennaButton, self.txAntennaFilePathText, self.txParamsButton, self.txParamsFilePathText, self.load_csv_button, self.load_database_button, self.save_database_button, self.correlation_graph_button, self.location_correl_graph_button]
         for i, widget in enumerate(widgets):
@@ -53,15 +56,7 @@ class GUI:
             checkbutton.pack()     
                     
         self.root.mainloop()
-        
-    def __create_table(self):
-        self.table["columns"] = ['Constraint', 'Mean', 'Median', 'Mode']
-
-        self.table.heading("#0", text="ID")
-        self.table.heading("Constraint", text="Constraint")
-        self.table.heading("Mean", text="Mean")
-        self.table.heading("Median", text="Median")
-        self.table.heading("Mode", text="Mode")
+    
     
     def __placeholder_graph(self):
         fig = plt.Figure(figsize=(5, 4), dpi=100)
@@ -126,14 +121,19 @@ class GUI:
     def __populate_statistics(self):
         #check and prompt for correct input
         powerStatistics = self.data.power_statistics(self.rows)
-        if powerStatistics: 
+        if powerStatistics:
             heightConstraint = powerStatistics['heightConstraint']
             dateConstraint = powerStatistics['dateConstraint']
             content = [
-                ['Height', heightConstraint['mean'], heightConstraint['median'],heightConstraint['mode']],
-                ['Date', dateConstraint['mean'], dateConstraint['median'],dateConstraint['mode']]]
+                ['Constraint:   ', 'Height>75     ', 'Date>=2001'],
+                ['Mean       ', heightConstraint['mean'], dateConstraint['mean']],
+                ['Median     ', heightConstraint['median'], dateConstraint['median']],
+                ['Mode       ', heightConstraint['mode'], dateConstraint['mode']]]
+            self.statisticsText.delete("1.0", tk.END)
             for i, row in enumerate(content):
-                self.table.insert("", "end", text=f"{i}", values=row)
+                row = [ str(el)[0:3] if isinstance(el, np.float64) else str(el) for el in row]
+                if i>0: self.statisticsText.insert("end", row[0]+'   '+row[1]+'            '+row[2]+ "\n")
+                else: self.statisticsText.insert("end", ''.join(row)+ "\n")
             
         
     def __populate_correlation_graph(self):
