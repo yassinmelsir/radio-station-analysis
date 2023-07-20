@@ -1,20 +1,22 @@
 from pymongo import MongoClient
-import pandas as pd
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
-from geopy.geocoders import Nominatim
+import pandas as pd
 
 class Data:
-    def __init__(self, serverAddress, databaseName, collectionName, antennaFilePath,paramsFilePath):
+    def __init__(self, serverAddress, databaseName, collectionName):
         self.serverAddress = serverAddress
         self.databaseName = databaseName
         self.collectionName = collectionName
-        self.antennaFilePath = antennaFilePath
-        self.paramsFilePath = paramsFilePath
         self.dfDAB = None
     
     def get_df(self):
-        return self.dfDAB
+        if self.dfDAB: return self.dfDAB
+    
+    def get_multiplexes(self):
+        if self.dfDAB : return self.dfDAB['EID'].unique()
     
     def __connect_to_server(self):
         client = MongoClient(self.serverAddress)
@@ -28,9 +30,12 @@ class Data:
             formatted_df = self.dfDAB.to_dict(orient='records')
             try: 
                 collection.insert_many(formatted_df)
+                client.close()
+                return True
             except:
                 print('could not save data to collection')
-            client.close()
+                client.close()
+                return False
         else: print('No Data in Working Space!')
         
     def load_from_database(self):
@@ -38,101 +43,123 @@ class Data:
         results = collection.find()
         formatted_results = list(results)
         if formatted_results: 
-            self.dfDAB = formatted_results    
+            self.dfDAB = pd.DataFrame(formatted_results)
+            print(self.dfDAB)
+            client.close()
+            return True
         else:
             print('No Data Saved in This collection!')
-        client.close()
+            client.close()
+            return False
         
-    def __cleaning_shaping(dfAntenna,dfParams):
-        dfDAB = dfParams.merge(dfAntenna['NGR', 'Site Height', 'In-Use Ae Ht', 'In-Use ERP Total'], on='Id', how='left')
+        
+    def __cleaning_shaping(self,dfAntenna,dfParams):
+        dfDAB = dfParams.join(dfAntenna[['NGR', 'Site Height', 'In-Use Ae Ht', 'In-Use ERP Total']])
         dfDAB = dfDAB.query("EID in ['C18A', 'C18F', 'C188']")
-        dfDAB = dfDAB['EID', 'Site', 'Site Height', 'In-Use Ae Ht', 'In-Use ERP Total', 'Freq', 'Block', 'Serv Label1', 'Serv Label2', 'Serv Label3', 'Serv label4','Serv Label10']
-        dfDAB = dfDAB.rename({'In-Use Ae Ht': 'Aerial height (m)', 'In-Use ERP Total': 'Power (kW)'})
+        dfDAB = dfDAB[['EID', 'Site', 'Freq.', 'Block', 'Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ','Serv Label10 ','Site Height', 'In-Use Ae Ht', 'In-Use ERP Total','Date']]
+        dfDAB['Aerial height (m)'], dfDAB['Power (kW)'] = dfDAB['In-Use Ae Ht'].copy(), dfDAB['In-Use ERP Total'].copy()
+        dfDAB.drop(columns=['In-Use Ae Ht','In-Use ERP Total'])
+        dfDAB['Date'] = dfDAB['Date'].apply(lambda x: x[-4:]).astype(int)
+        dfDAB['Power (kW)'] = dfDAB['Power (kW)'].apply(lambda x: x.replace(',','')).astype(float)
+        labels = ['Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ', 'Serv Label10 ']
+        dfDAB[labels] = dfDAB[labels].applymap(len) # apply numerical normilzation to data
+        labelencoder = LabelEncoder()
+        dfDAB['Block'] = labelencoder.fit_transform(dfDAB['Block'])
+        dfDAB['Site'] = labelencoder.fit_transform(dfDAB['Site'])
         return dfDAB
 
-    def initialize_client_dataset(self):
+    def initialize_client_dataset(self, antennaFilePath, paramsFilePath):
         #load from file
-        try:
-            dfAntenna = pd.read_csv(self.antennaFilePath)
-            dfParams = pd.read_csv(self.paramsFilePath)
-        except:
-            print('One or more file paths are incorrect')
+        dfAntenna = pd.read_csv(antennaFilePath)
+        dfParams = pd.read_csv(paramsFilePath, encoding='latin-1')
         #shape and clean
         dfDAB = self.__cleaning_shaping(dfAntenna, dfParams)
         #load into workingspace
         self.dfDAB = dfDAB
+        return True if self.dfDAB.shape[0] > 0 else False
     
     def clear_working_space(self):
         self.dfDAB = None
         
-    def power_statistics(self,multiplex):
-        if self.dfDAB:
-            df = self.dfDAB.query(f'EID in {multiplex}')
+    def power_statistics(self,rows):
+        # working statistics
+        if self.dfDAB.shape[0] > 0:
             
+            df = self.dfDAB.query(f'EID in {rows}')
             # mean mode median for multiplex with site height greater than 75
             dfSiteHeight75 = df[df['Site Height'] > 75]
             powerDfSiteHeight75 = dfSiteHeight75['Power (kW)']
             powerStatisticsSiteHeightAbove75 = {
                 'mean':powerDfSiteHeight75.mean(), 'median': powerDfSiteHeight75.median(), 'mode': powerDfSiteHeight75.mode().values[0]
             }
-            
             # mean mode median for multiplex with date from 2001 onwards
-            df['Date'] = pd.to_datetime(df['Date'], format='$d/$m/$Y')
-            dfDate2001Onwards = df[df['Date'].dt.year >= 2001]
+            dfDate2001Onwards = df[df['Date'] >= 2001]
             powerDfDate2001Onwards = dfDate2001Onwards['Power (kW)']
             powerStatisticsDate2001Onward = {
                 'mean':powerDfDate2001Onwards.mean(), 'median': powerDfDate2001Onwards.median(), 'mode': powerDfDate2001Onwards.mode().values[0]
             }
             return {
-                'Power statistics site height above 75': powerStatisticsSiteHeightAbove75, 'Power statistics 2001 Onwards': powerStatisticsDate2001Onward
+                'heightConstraint': powerStatisticsSiteHeightAbove75, 'dateConstraint': powerStatisticsDate2001Onward
             }
         else:
             print('No Data in Working Space!')
     
-    def visualize_correlations(self):
-        if self.dfDAB:
-            correlation_matrix = self.__compute_correlation_matrix()
-            plt.figure(figsize=(8,6))
-            sns.heatmap(correlation_matrix, cmp='coolwarm', annot=True, fmt='.2f', square=True)
-            plt.title('Correlation between EID Frequency, Block and Label Length')
+    def visualize_correlations(self, graphFrame, rows):
+        for child in graphFrame.winfo_children():
+            child.destroy()
+        if self.dfDAB.shape[0] > 0:
+            correlation_matrix = self.__compute_correlation_matrix(rows)
+            figure, ax = plt.subplots()
+            sns.heatmap(correlation_matrix, cmap='coolwarm', annot=True, fmt='.2f', square=True, ax=ax)
+            ax.set_title('Correlation Statistics')
+            canvas = FigureCanvasTkAgg(figure, master=graphFrame)
+            canvas.draw()
+            canvas.get_tk_widget().pack()
         else:
             print('No Data in Working Space!')
     
-    def visualize_location_impact_on_correlation(self):
-        if self.dfDAB:
-            correlation_matrix = self.__compute_correlation_matrix()
-            df = self.dfDAB
+    def visualize_location_impact_on_correlation(self, graphFrame, rows):
+        for child in graphFrame.winfo_children():
+            child.destroy()
+        if self.dfDAB.shape[0] > 0:
+            df = self.dfDAB.query(f"EID in {rows}")   
+            grouped_df = df.groupby('EID')
+            groups = df['EID'].unique()
+            columns = ['Site','Freq.', 'Block','Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ', 'Serv Label10 '] 
             
-            #find latitude and longitude of site
-            geolocater = Nominatim(user_agent='production-app')
-            df['Coordinates'] = df['Site'].apply(lambda x: geolocater.geocode(x).point if geolocater.geocode(x) else None)
-            df['Latitude'] = df['Coordinates'].apply(lambda x: x.latitude if x.latitude else None)
-            df['Longitude'] = df['Longitude'].apply(lambda x: x.longitude if x.longitude else None)
+            figure, ax = plt.subplots()
+            bar_width = 0.35
+            bar_spacing = 0.2
+            for i, column in enumerate(columns):
+                x = [j + i * (bar_width + bar_spacing) for j in range(len(groups))]
+                bars = ax.bar(x, grouped_df[column].mean(), width=bar_width, label=column)
             
-            plt.figure(figsize=(10,8))
-            sns.heatmap(correlation_matrix, cmap='coolwarm', annot=True, fmt='.2f', square=True)
-            plt.scatter(df['Longitude'], df['Latitude'], marker='x', color='red')
-            plt.title('Affect of Location on Correlation between EID Frequency, Block and Label Length')
-            plt.xlabel('Longitude')
-            plt.ylabel('Latitude')
-            plt.show()
+            ax.set_xticks([])
+
+            for i, column in enumerate(columns):
+                x = [j + i * (bar_width + bar_spacing) for j in range(len(groups))]
+                for j, value in enumerate(grouped_df[column].mean()):
+                    ax.text(x[j], value, groups[j], ha='center', va='bottom')
+
+            ax.set_xticks([j + bar_width / 2 + (len(columns) - 1) * (bar_width + bar_spacing) / 2 for j in range(len(groups))])
+            ax.set_xticklabels(groups)
+            ax.set_xlabel('Group')
+            ax.set_ylabel('Mean Value')
+            ax.set_title('Bar Graph for Each Group and Numerical Columns')
+            ax.legend()
+                        
+            canvas = FigureCanvasTkAgg(figure, master=graphFrame)
+            canvas.draw()
+            canvas.get_tk_widget().pack()
             
         else:
             print('No Data in Working Space!')
     
-    def __compute_correlation_matrix(self):
-        if self.dfDAB:
-            df = self.dfDAB
-            labels = 'Serv Label1', 'Serv Label2', 'Serv Label3', 'Serv label4','Serv Label10'
-            df[labels] = df[[labels]].applymap(len) # apply numerical normilzation to data
-            correlation_columns = labels.append('Freq.', 'Block')
+    def __compute_correlation_matrix(self, rows):
+        if self.dfDAB.shape[0] > 0:
+            df = self.dfDAB.query(f"EID in {rows}")
+            correlation_columns = ['Freq.', 'Block','Serv Label1 ', 'Serv Label2 ', 'Serv Label3 ', 'Serv Label4 ', 'Serv Label10 ']
             correlation_matrix = df[correlation_columns].corr()
             return correlation_matrix
         else:
             print('No Data in Working Space!')
-        
-serverAddress = 'mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000&appName=mongosh+1.10.1'
-databaseName = 'test'
-collection  = 'DAB'
-antennaFilePath = '/Users/yme/Code/AdvancedProgramming/FormativeAssessment/data/TxAntennaDAB.csv'
-paramsFilePath = '/Users/yme/Code/AdvancedProgramming/FormativeAssessment/data/TxParamsDAB.csv'
