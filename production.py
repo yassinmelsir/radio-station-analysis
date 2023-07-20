@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 from tkinter import filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from pymongo import MongoClient
@@ -9,11 +10,6 @@ import seaborn as sns
 
 class GUI:
     def __init__(self,data):
-        # add box to load database by name
-        # add box to save database by name
-        # add listbox of databases
-        # add final graph
-        # fix statistics display
         self.data = data
         self.txAntennaFilePath = None
         self.txParamsFilePath = None
@@ -22,44 +18,61 @@ class GUI:
         #gui init
         self.root = tk.Tk()
         self.root.title('Production')
+        self.groupFrame = tk.Frame(self.root, width=100, height=100)
+        self.buttonFrame = tk.Frame(self.groupFrame, width=10, height=100)
         
         #gui elements
-        self.graphFrame = tk.Frame(self.root)
-        graphPlaceholder = tk.Label(self.graphFrame, text="Placeholder", bg="white", fg="black")
-        self.text =  tk.Text(self.root)
-        self.rightFrame = tk.Frame(self.root)
-        self.txAntennaButton = tk.Button(self.rightFrame, text='Find TxAntenna File', command=self.__update_antenna_filePath)
-        self.txAntennaFilePathText =  tk.Text(self.rightFrame, height=5)
-        self.txParamsButton = tk.Button(self.rightFrame, text='Find TxParams File', command=self.__update_params_filePath)
-        self.txParamsFilePathText =  tk.Text(self.rightFrame, height=5)
-        self.load_csv_button = tk.Button(self.rightFrame,text='Load From CSV', command=self.__load_from_csv)
-        self.load_database_button = tk.Button(self.rightFrame, text='Load From Database', command=self.__load_from_database)
-        self.save_database_button = tk.Button(self.rightFrame, text='Save To Database', command=self.__save_to_database)
-        self.correlation_graph_button = tk.Button(self.rightFrame, text='Standard Correlation Graph', command=self.__populate_correlation_graph)
-        self.location_correl_graph_button = tk.Button(self.rightFrame, text='Location Correlation Graph', command=self.__populate_location_correlation_graph)
+        self.graphFrame = tk.Frame(self.groupFrame)
+        self.__placeholder_graph()
+        self.table = ttk.Treeview(self.groupFrame)
+        self.__create_table
+        self.txAntennaButton = tk.Button(self.buttonFrame, text='Find TxAntenna File', command=self.__update_antenna_filePath)
+        self.txAntennaFilePathText =  tk.Text(self.buttonFrame, height=5, width=15)
+        self.txParamsButton = tk.Button(self.buttonFrame, text='Find TxParams File', command=self.__update_params_filePath)
+        self.txParamsFilePathText =  tk.Text(self.buttonFrame, height=5, width=15)
+        self.load_csv_button = tk.Button(self.buttonFrame,text='Load From CSV', command=self.__load_from_csv)
+        self.load_database_button = tk.Button(self.buttonFrame, text='Load From Database', command=self.__load_from_database)
+        self.save_database_button = tk.Button(self.buttonFrame, text='Save To Database', command=self.__save_to_database)
+        self.correlation_graph_button = tk.Button(self.buttonFrame, text='Standard Correlation Graph', command=self.__populate_correlation_graph)
+        self.location_correl_graph_button = tk.Button(self.buttonFrame, text='Location Correlation Graph', command=self.__populate_location_correlation_graph)
             
         #gui layout
         # better looking layout
-        for i in range(0,1+1):
-            self.root.grid_rowconfigure(i, weight=1)
-            self.root.grid_columnconfigure(i, weight=1)
-       
+        self.groupFrame.grid(row=0,column=0)
+        self.graphFrame.grid(row=0, column=0, sticky='nsew')
+        self.table.grid(row=0, column=1, sticky='nsew')
+        self.buttonFrame.grid(row=0,column=2, sticky='nsew')
         
-        self.graphFrame.grid(row=0,column=0)
-        graphPlaceholder.pack(fill=tk.BOTH, expand=True)
-        self.text.grid(row=1,column=0)
-        self.rightFrame.grid(row=0,column=1, rowspan=2)
         widgets = [self.txAntennaButton, self.txAntennaFilePathText, self.txParamsButton, self.txParamsFilePathText, self.load_csv_button, self.load_database_button, self.save_database_button, self.correlation_graph_button, self.location_correl_graph_button]
         for i, widget in enumerate(widgets):
-            widget.pack()
+            widget.pack(fill=tk.BOTH, expand=True)
         self.rowbuttons = {}
         for i, row in enumerate(self.rows):
             self.rowbuttons[row] = tk.BooleanVar(value=True) 
-            checkbutton = tk.Checkbutton(self.rightFrame, text=row, variable=self.rowbuttons[row], command=self.__update_rows)
+            checkbutton = tk.Checkbutton(self.buttonFrame, text=row, variable=self.rowbuttons[row], command=self.__update_rows)
             checkbutton.pack()     
                     
         self.root.mainloop()
         
+    def __create_table(self):
+        self.table["columns"] = ['Constraint', 'Mean', 'Median', 'Mode']
+
+        self.table.heading("#0", text="ID")
+        self.table.heading("Constraint", text="Constraint")
+        self.table.heading("Mean", text="Mean")
+        self.table.heading("Median", text="Median")
+        self.table.heading("Mode", text="Mode")
+    
+    def __placeholder_graph(self):
+        fig = plt.Figure(figsize=(5, 4), dpi=100)
+        ax = fig.add_subplot(1, 1, 1)
+
+        # Create a FigureCanvasTkAgg widget that can be used in a Tkinter application
+        canvas = FigureCanvasTkAgg(fig, master=self.graphFrame)
+        canvas.draw()
+
+        # Pack the canvas to fill the entire widget
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
     def __load_from_csv(self):
         #check and prompt for correct input
@@ -117,13 +130,10 @@ class GUI:
             heightConstraint = powerStatistics['heightConstraint']
             dateConstraint = powerStatistics['dateConstraint']
             content = [
-                ['Constraint', 'Mean', 'Median', 'Mode'],
                 ['Height', heightConstraint['mean'], heightConstraint['median'],heightConstraint['mode']],
                 ['Date', dateConstraint['mean'], dateConstraint['median'],dateConstraint['mode']]]
             for i, row in enumerate(content):
-                for j, element in enumerate(row):
-                    self.text.insert(tk.END, str(element) + ' ')
-                    self.text.grid(row=i, column=j)
+                self.table.insert("", "end", text=f"{i}", values=row)
             
         
     def __populate_correlation_graph(self):
@@ -261,6 +271,13 @@ class Data:
             for i, column in enumerate(columns):
                 x = [j + i * (bar_width + bar_spacing) for j in range(len(groups))]
                 bars = ax.bar(x, grouped_df[column].mean(), width=bar_width, label=column)
+            
+            ax.set_xticks([])
+
+            for i, column in enumerate(columns):
+                x = [j + i * (bar_width + bar_spacing) for j in range(len(groups))]
+                for j, value in enumerate(grouped_df[column].mean()):
+                    ax.text(x[j], value, groups[j], ha='center', va='bottom')
 
             ax.set_xticks([j + bar_width / 2 + (len(columns) - 1) * (bar_width + bar_spacing) / 2 for j in range(len(groups))])
             ax.set_xticklabels(groups)
